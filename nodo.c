@@ -1,4 +1,4 @@
-// nodo.c - VERSIÓN CORREGIDA
+// nodo.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -104,9 +104,6 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
     
     printf("Proceso MPI %d encontró %d palabras únicas\n", rank, num_palabras_locales);
     
-    // *** CORRECCIÓN PRINCIPAL: Agregar barrera de sincronización ***
-    MPI_Barrier(MPI_COMM_WORLD);
-    
     // Recopilar resultados en el proceso 0
     if (rank == 0) {
         // Copiar palabras locales del proceso 0
@@ -143,9 +140,6 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
         MPI_Send(palabras_locales, num_palabras_locales * sizeof(WordCount), MPI_BYTE, 
                 0, 1, MPI_COMM_WORLD);
     }
-    
-    // *** CORRECCIÓN: Segunda barrera para asegurar sincronización completa ***
-    MPI_Barrier(MPI_COMM_WORLD);
 }
 
 int main(int argc, char* argv[]) {
@@ -162,10 +156,6 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     
     int puerto = atoi(argv[1]);
-    
-    // *** CORRECCIÓN: Compartir el segmento con todos los procesos MPI ***
-    char* segmento = NULL;
-    int tam_segmento = 0;
     
     if (rank == 0) {
         printf("Nodo iniciado en puerto %d con %d procesos MPI\n", puerto, size);
@@ -215,18 +205,15 @@ int main(int argc, char* argv[]) {
         printf("Conexión aceptada del servidor principal\n");
         
         // Recibir tamaño del segmento
+        int tam_segmento;
         recv(cliente_sock, &tam_segmento, sizeof(int), 0);
         
         // Recibir segmento
-        segmento = malloc(tam_segmento + 1);
+        char* segmento = malloc(tam_segmento + 1);
         recv(cliente_sock, segmento, tam_segmento, 0);
         segmento[tam_segmento] = '\0';
         
         printf("Recibido segmento de %d caracteres\n", tam_segmento);
-        
-        // *** CORRECCIÓN: Broadcast del tamaño y datos a todos los procesos MPI ***
-        MPI_Bcast(&tam_segmento, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(segmento, tam_segmento, MPI_CHAR, 0, MPI_COMM_WORLD);
         
         // Procesar con MPI
         WordCount palabras[MAX_WORDS];
@@ -246,21 +233,6 @@ int main(int argc, char* argv[]) {
         
         close(cliente_sock);
         close(servidor_sock);
-        free(segmento);
-    } else {
-        // *** CORRECCIÓN: Los procesos no-master también reciben los datos ***
-        MPI_Bcast(&tam_segmento, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        
-        segmento = malloc(tam_segmento + 1);
-        MPI_Bcast(segmento, tam_segmento, MPI_CHAR, 0, MPI_COMM_WORLD);
-        segmento[tam_segmento] = '\0';
-        
-        // Procesar con MPI (solo participan en el procesamiento)
-        WordCount palabras[MAX_WORDS];
-        int num_palabras = 0;
-        
-        procesar_segmento_mpi(segmento, tam_segmento, palabras, &num_palabras);
-        
         free(segmento);
     }
     

@@ -1,4 +1,4 @@
-// servidor.c
+// servidor_optimizado.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <ctype.h>
 
 #define PUERTO_SERVIDOR 8080
 #define PUERTO_NODO1 8081
@@ -14,9 +15,10 @@
 #define PUERTO_NODO3 8083
 #define MAX_NODOS 3
 #define BUFFER_SIZE 4096
-#define MAX_WORD_LEN 100
-#define MAX_WORDS 1000
+#define MAX_WORD_LEN 10
+#define MAX_WORDS 10000
 #define SHIFT 3
+#define TOP_RESULTS 10  // Solo mostrar top 10 resultados
 
 typedef struct {
     char word[MAX_WORD_LEN];
@@ -86,28 +88,52 @@ void* procesar_nodo(void* arg) {
         recv(sock, info->resultado, sizeof(WordCount) * info->num_palabras, 0);
     }
     
-    printf("Nodo puerto %d procesó %d palabras\n", info->puerto, info->num_palabras);
+    printf("Nodo puerto %d procesó %d palabras únicas\n", info->puerto, info->num_palabras);
     
     close(sock);
     return NULL;
 }
 
-// Función para dividir el texto cifrado en segmentos
-void dividir_texto(char* texto, int tam_total, char** segmentos, int* tam_segmentos) {
-    int tam_segmento = tam_total / MAX_NODOS;
-    int resto = tam_total % MAX_NODOS;
+// Función MEJORADA para dividir el texto por palabras completas
+void dividir_texto_por_palabras(char* texto, int tam_total, char** segmentos, int* tam_segmentos) {
+    // Encontrar aproximadamente dónde dividir
+    int tam_aproximado = tam_total / MAX_NODOS;
+    int posiciones[MAX_NODOS + 1];
+    posiciones[0] = 0;
+    posiciones[MAX_NODOS] = tam_total;
     
-    int pos = 0;
+    // Encontrar puntos de división que no corten palabras
+    for (int i = 1; i < MAX_NODOS; i++) {
+        int pos_inicial = i * tam_aproximado;
+        
+        // Buscar hacia atrás hasta encontrar un espacio o inicio
+        while (pos_inicial > posiciones[i-1] && !isspace(texto[pos_inicial]) && pos_inicial > 0) {
+            pos_inicial--;
+        }
+        
+        // Si llegamos al inicio del segmento anterior, buscar hacia adelante
+        if (pos_inicial <= posiciones[i-1]) {
+            pos_inicial = i * tam_aproximado;
+            while (pos_inicial < tam_total && !isspace(texto[pos_inicial])) {
+                pos_inicial++;
+            }
+        }
+        
+        posiciones[i] = pos_inicial;
+    }
+    
+    // Crear los segmentos
     for (int i = 0; i < MAX_NODOS; i++) {
-        int tam_actual = tam_segmento + (i < resto ? 1 : 0);
+        int inicio = posiciones[i];
+        int fin = posiciones[i + 1];
+        int tam_segmento = fin - inicio;
         
-        segmentos[i] = malloc(tam_actual + 1);
-        memcpy(segmentos[i], texto + pos, tam_actual);
-        segmentos[i][tam_actual] = '\0';
-        tam_segmentos[i] = tam_actual;
-        pos += tam_actual;
+        segmentos[i] = malloc(tam_segmento + 1);
+        memcpy(segmentos[i], texto + inicio, tam_segmento);
+        segmentos[i][tam_segmento] = '\0';
+        tam_segmentos[i] = tam_segmento;
         
-        printf("Segmento %d: %d caracteres\n", i + 1, tam_actual);
+        printf("Segmento %d: posición %d-%d (%d caracteres)\n", i + 1, inicio, fin-1, tam_segmento);
     }
 }
 
@@ -135,6 +161,19 @@ void combinar_resultados(InfoNodo nodos[MAX_NODOS], WordCount* resultado_final, 
                 strcpy(resultado_final[*total_palabras].word, palabra);
                 resultado_final[*total_palabras].count = count;
                 (*total_palabras)++;
+            }
+        }
+    }
+}
+
+// Función para ordenar resultados por frecuencia (mayor a menor)
+void ordenar_por_frecuencia(WordCount* palabras, int num_palabras) {
+    for (int i = 0; i < num_palabras - 1; i++) {
+        for (int j = 0; j < num_palabras - i - 1; j++) {
+            if (palabras[j].count < palabras[j + 1].count) {
+                WordCount temp = palabras[j];
+                palabras[j] = palabras[j + 1];
+                palabras[j + 1] = temp;
             }
         }
     }
@@ -196,10 +235,10 @@ int main(int argc, char* argv[]) {
     // Guardar archivo descifrado
     guardar_archivo_descifrado(contenido, tam_archivo, "archivo_descifrado.txt");
     
-    // Dividir en segmentos
+    // Dividir en segmentos POR PALABRAS COMPLETAS
     char* segmentos[MAX_NODOS];
     int tam_segmentos[MAX_NODOS];
-    dividir_texto(contenido, tam_archivo, segmentos, tam_segmentos);
+    dividir_texto_por_palabras(contenido, tam_archivo, segmentos, tam_segmentos);
     
     // Configurar información de nodos
     InfoNodo nodos[MAX_NODOS];
@@ -233,23 +272,35 @@ int main(int argc, char* argv[]) {
     int total_palabras;
     combinar_resultados(nodos, resultado_final, &total_palabras);
     
-    // Encontrar palabra más repetida
+    // ORDENAR por frecuencia
+    ordenar_por_frecuencia(resultado_final, total_palabras);
+    
+    // Mostrar resultados OPTIMIZADOS
     if (total_palabras > 0) {
-        int max_idx = 0;
-        for (int i = 1; i < total_palabras; i++) {
-            if (resultado_final[i].count > resultado_final[max_idx].count) {
-                max_idx = i;
-            }
+        printf("\n=== RESULTADO FINAL ===\n");
+        printf("🏆 PALABRA MÁS REPETIDA: \"%s\" (%d veces)\n", 
+               resultado_final[0].word, resultado_final[0].count);
+        
+        // Mostrar solo TOP resultados para textos grandes
+        int resultados_a_mostrar = (total_palabras > TOP_RESULTS) ? TOP_RESULTS : total_palabras;
+        
+        printf("\n📊 TOP %d PALABRAS MÁS FRECUENTES:\n", resultados_a_mostrar);
+        for (int i = 0; i < resultados_a_mostrar; i++) {
+            printf("  %2d. %-15s: %d veces\n", i+1, resultado_final[i].word, resultado_final[i].count);
         }
         
-        printf("\n=== RESULTADO FINAL ===\n");
-        printf("Palabra más repetida: \"%s\" (%d veces)\n", 
-               resultado_final[max_idx].word, resultado_final[max_idx].count);
+        if (total_palabras > TOP_RESULTS) {
+            printf("  ... y %d palabras más (total: %d palabras únicas)\n", 
+                   total_palabras - TOP_RESULTS, total_palabras);
+        }
         
-        // Mostrar todas las palabras encontradas
-        printf("\nTodas las palabras encontradas:\n");
-        for (int i = 0; i < total_palabras; i++) {
-            printf("  %s: %d veces\n", resultado_final[i].word, resultado_final[i].count);
+        printf("\n📈 ESTADÍSTICAS:\n");
+        printf("  • Total palabras únicas: %d\n", total_palabras);
+        printf("  • Palabra más frecuente: %s (%d apariciones)\n", 
+               resultado_final[0].word, resultado_final[0].count);
+        if (total_palabras > 1) {
+            printf("  • Palabra menos frecuente: %s (%d apariciones)\n", 
+                   resultado_final[total_palabras-1].word, resultado_final[total_palabras-1].count);
         }
     } else {
         printf("No se encontraron palabras en el texto.\n");
@@ -261,6 +312,6 @@ int main(int argc, char* argv[]) {
     }
     free(contenido);
     
-    printf("\nProcesamiento completado.\n");
+    printf("\nProcesamiento completado exitosamente.\n");
     return 0;
 }

@@ -38,13 +38,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 echo "✅ Archivo cifrado creado: archivo_cifrado.enc"
-
 echo ""
-echo "📄 Contenido original:"
-cat entrada.txt
 echo ""
-echo "🔒 Contenido cifrado:"
-cat archivo_cifrado.enc
 echo ""
 
 echo "⏳ Esperando a que los nodos estén listos..."
@@ -75,18 +70,10 @@ if [ $EXIT_CODE -eq 0 ]; then
     echo "✅ PROCESAMIENTO COMPLETADO EXITOSAMENTE"
     echo ""
     
-    if [ -f "archivo_descifrado.txt" ]; then
-        echo "📄 Archivo descifrado generado:"
-        echo "Contenido descifrado:"
-        echo "----------------------------------------"
-        cat archivo_descifrado.txt
-        echo "----------------------------------------"
-    fi
-    
     echo ""
     echo "📁 Archivos generados:"
-    echo "  • archivo_cifrado.enc (guardado como pide la tarea)"
-    echo "  • archivo_descifrado.txt (guardado como pide la tarea)"
+    echo "  • archivo_cifrado.enc"
+    echo "  • archivo_descifrado.txt "
     
 else
     echo "❌ Error en el procesamiento"
