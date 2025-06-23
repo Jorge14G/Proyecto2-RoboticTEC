@@ -1,0 +1,270 @@
+// nodo.c - VERSIÓN CORREGIDA
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <ctype.h>
+#include <mpi.h>
+
+#define BUFFER_SIZE 4096
+#define MAX_WORD_LEN 100
+#define MAX_WORDS 1000
+#define SHIFT 3
+
+typedef struct {
+    char word[MAX_WORD_LEN];
+    int count;
+} WordCount;
+
+// Función para descifrar un carácter
+char descifrar_caracter(char c) {
+    if (c >= 'a' && c <= 'z')
+        return ((c - 'a' - SHIFT + 26) % 26) + 'a';
+    else if (c >= 'A' && c <= 'Z')
+        return ((c - 'A' - SHIFT + 26) % 26) + 'A';
+    else
+        return c;
+}
+
+// Función para agregar/incrementar palabra en el array
+void agregar_incremento(WordCount *array, int *n, const char *word) {
+    for (int i = 0; i < *n; i++) {
+        if (strcmp(array[i].word, word) == 0) {
+            array[i].count++;
+            return;
+        }
+    }
+    
+    if (*n < MAX_WORDS) {
+        strncpy(array[*n].word, word, MAX_WORD_LEN - 1);
+        array[*n].word[MAX_WORD_LEN - 1] = '\0';
+        array[*n].count = 1;
+        (*n)++;
+    }
+}
+
+// Función para procesar segmento con MPI
+void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras, int* num_palabras) {
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    
+    // Calcular porción para cada proceso MPI
+    int chars_por_proceso = tam_segmento / size;
+    int resto = tam_segmento % size;
+    
+    int inicio = rank * chars_por_proceso + (rank < resto ? rank : resto);
+    int fin = inicio + chars_por_proceso + (rank < resto ? 1 : 0);
+    
+    // Ajustar límites para no cortar palabras
+    if (rank > 0) {
+        while (inicio > 0 && isalpha(segmento[inicio - 1])) {
+            inicio--;
+        }
+    }
+    
+    if (rank < size - 1) {
+        while (fin < tam_segmento && isalpha(segmento[fin])) {
+            fin++;
+        }
+    }
+    
+    printf("Proceso MPI %d procesando caracteres %d-%d\n", rank, inicio, fin - 1);
+    
+    // Procesar la porción asignada
+    WordCount palabras_locales[MAX_WORDS];
+    int num_palabras_locales = 0;
+    
+    char buffer[MAX_WORD_LEN];
+    int index = 0;
+    
+    for (int i = inicio; i < fin; i++) {
+        char c_descifrado = descifrar_caracter(segmento[i]);
+        
+        if (isalpha(c_descifrado)) {
+            if (index < MAX_WORD_LEN - 1) {
+                buffer[index++] = tolower(c_descifrado);
+            }
+        } else if (isspace(c_descifrado) || ispunct(c_descifrado)) {
+            if (index > 0) {
+                buffer[index] = '\0';
+                agregar_incremento(palabras_locales, &num_palabras_locales, buffer);
+                index = 0;
+            }
+        }
+    }
+    
+    // Procesar última palabra si existe
+    if (index > 0) {
+        buffer[index] = '\0';
+        agregar_incremento(palabras_locales, &num_palabras_locales, buffer);
+    }
+    
+    printf("Proceso MPI %d encontró %d palabras únicas\n", rank, num_palabras_locales);
+    
+    // *** CORRECCIÓN PRINCIPAL: Agregar barrera de sincronización ***
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    // Recopilar resultados en el proceso 0
+    if (rank == 0) {
+        // Copiar palabras locales del proceso 0
+        for (int i = 0; i < num_palabras_locales; i++) {
+            strcpy(palabras[i].word, palabras_locales[i].word);
+            palabras[i].count = palabras_locales[i].count;
+        }
+        *num_palabras = num_palabras_locales;
+        
+        // Recibir de otros procesos
+        for (int src = 1; src < size; src++) {
+            int num_recibidas;
+            MPI_Recv(&num_recibidas, 1, MPI_INT, src, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            
+            WordCount palabras_recibidas[MAX_WORDS];
+            MPI_Recv(palabras_recibidas, num_recibidas * sizeof(WordCount), MPI_BYTE, 
+                    src, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            
+            // Combinar con las palabras existentes
+            for (int i = 0; i < num_recibidas; i++) {
+                agregar_incremento(palabras, num_palabras, palabras_recibidas[i].word);
+                // Agregar el conteo adicional (agregar_incremento solo suma 1)
+                for (int j = 0; j < *num_palabras; j++) {
+                    if (strcmp(palabras[j].word, palabras_recibidas[i].word) == 0) {
+                        palabras[j].count += palabras_recibidas[i].count - 1;
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        // Enviar al proceso 0
+        MPI_Send(&num_palabras_locales, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(palabras_locales, num_palabras_locales * sizeof(WordCount), MPI_BYTE, 
+                0, 1, MPI_COMM_WORLD);
+    }
+    
+    // *** CORRECCIÓN: Segunda barrera para asegurar sincronización completa ***
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        printf("Uso: %s <puerto>\n", argv[0]);
+        return 1;
+    }
+    
+    // Inicializar MPI
+    MPI_Init(&argc, &argv);
+    
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    
+    int puerto = atoi(argv[1]);
+    
+    // *** CORRECCIÓN: Compartir el segmento con todos los procesos MPI ***
+    char* segmento = NULL;
+    int tam_segmento = 0;
+    
+    if (rank == 0) {
+        printf("Nodo iniciado en puerto %d con %d procesos MPI\n", puerto, size);
+        
+        // Crear socket servidor
+        int servidor_sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (servidor_sock < 0) {
+            perror("Error creando socket");
+            MPI_Finalize();
+            return 1;
+        }
+        
+        // Configurar reutilización de puerto
+        int opt = 1;
+        setsockopt(servidor_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        
+        struct sockaddr_in direccion;
+        direccion.sin_family = AF_INET;
+        direccion.sin_addr.s_addr = INADDR_ANY;
+        direccion.sin_port = htons(puerto);
+        
+        if (bind(servidor_sock, (struct sockaddr*)&direccion, sizeof(direccion)) < 0) {
+            perror("Error en bind");
+            close(servidor_sock);
+            MPI_Finalize();
+            return 1;
+        }
+        
+        if (listen(servidor_sock, 1) < 0) {
+            perror("Error en listen");
+            close(servidor_sock);
+            MPI_Finalize();
+            return 1;
+        }
+        
+        printf("Nodo escuchando en puerto %d...\n", puerto);
+        
+        // Aceptar conexión del servidor
+        int cliente_sock = accept(servidor_sock, NULL, NULL);
+        if (cliente_sock < 0) {
+            perror("Error aceptando conexión");
+            close(servidor_sock);
+            MPI_Finalize();
+            return 1;
+        }
+        
+        printf("Conexión aceptada del servidor principal\n");
+        
+        // Recibir tamaño del segmento
+        recv(cliente_sock, &tam_segmento, sizeof(int), 0);
+        
+        // Recibir segmento
+        segmento = malloc(tam_segmento + 1);
+        recv(cliente_sock, segmento, tam_segmento, 0);
+        segmento[tam_segmento] = '\0';
+        
+        printf("Recibido segmento de %d caracteres\n", tam_segmento);
+        
+        // *** CORRECCIÓN: Broadcast del tamaño y datos a todos los procesos MPI ***
+        MPI_Bcast(&tam_segmento, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(segmento, tam_segmento, MPI_CHAR, 0, MPI_COMM_WORLD);
+        
+        // Procesar con MPI
+        WordCount palabras[MAX_WORDS];
+        int num_palabras = 0;
+        
+        procesar_segmento_mpi(segmento, tam_segmento, palabras, &num_palabras);
+        
+        printf("Procesamiento MPI completado: %d palabras únicas encontradas\n", num_palabras);
+        
+        // Enviar resultados de vuelta al servidor
+        send(cliente_sock, &num_palabras, sizeof(int), 0);
+        if (num_palabras > 0) {
+            send(cliente_sock, palabras, sizeof(WordCount) * num_palabras, 0);
+        }
+        
+        printf("Resultados enviados al servidor principal\n");
+        
+        close(cliente_sock);
+        close(servidor_sock);
+        free(segmento);
+    } else {
+        // *** CORRECCIÓN: Los procesos no-master también reciben los datos ***
+        MPI_Bcast(&tam_segmento, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        
+        segmento = malloc(tam_segmento + 1);
+        MPI_Bcast(segmento, tam_segmento, MPI_CHAR, 0, MPI_COMM_WORLD);
+        segmento[tam_segmento] = '\0';
+        
+        // Procesar con MPI (solo participan en el procesamiento)
+        WordCount palabras[MAX_WORDS];
+        int num_palabras = 0;
+        
+        procesar_segmento_mpi(segmento, tam_segmento, palabras, &num_palabras);
+        
+        free(segmento);
+    }
+    
+    // Finalizar MPI
+    MPI_Finalize();
+    return 0;
+}
