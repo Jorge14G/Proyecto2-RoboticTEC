@@ -1,8 +1,25 @@
-obj-m += robotDriver.o
+# driver/Makefile
+
+# Módulo del kernel
+obj-m := robotDriver.o
 CC = gcc-12
 
-all:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+KDIR := /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+# Programa en espacio de usuario
+USERPROG = uartSender
+USERSRC = uartSender.c
+
+all: kernel user
+
+kernel:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+user:
+	$(CC) $(USERSRC) -o $(USERPROG)
 
 clean:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f $(USERPROG)
+
