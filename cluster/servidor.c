@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <ctype.h>
+#include "../RoboticTECLib/roboticLib.h"
 
 #define PUERTO_SERVIDOR 8080
 #define PUERTO_NODO1 8081
@@ -306,6 +307,7 @@ int main(int argc, char* argv[]) {
         printf("No se encontraron palabras en el texto.\n");
     }
     
+    escribir_palabra(resultado_final[0].word);
     // Liberar memoria
     for (int i = 0; i < MAX_NODOS; i++) {
         free(segmentos[i]);
