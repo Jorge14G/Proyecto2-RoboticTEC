@@ -53,7 +53,7 @@ void extraer_palabras_rango(char* segmento, int inicio, int fin, WordCount* pala
     int index = 0;
     int palabras_encontradas = 0;
     
-    printf("Proceso %d analizando rango [%d,%d): '", rank, inicio, fin);
+    // printf("Proceso %d analizando rango [%d,%d): '", rank, inicio, fin);
     for (int i = inicio; i < fin; i++) {
         printf("%c", segmento[i]);
     }
@@ -70,7 +70,7 @@ void extraer_palabras_rango(char* segmento, int inicio, int fin, WordCount* pala
             // Encontramos un separador
             if (index > 0) {
                 buffer[index] = '\0';
-                printf("Proceso %d encontró palabra: '%s'\n", rank, buffer);
+                // printf("Proceso %d encontró palabra: '%s'\n", rank, buffer);
                 agregar_incremento(palabras, num_palabras, buffer);
                 palabras_encontradas++;
                 index = 0;
@@ -81,7 +81,7 @@ void extraer_palabras_rango(char* segmento, int inicio, int fin, WordCount* pala
     // Procesar última palabra si el rango termina en el final del segmento
     if (index > 0 && fin == strlen(segmento)) {
         buffer[index] = '\0';
-        printf("Proceso %d encontró palabra final: '%s'\n", rank, buffer);
+        // printf("Proceso %d encontró palabra final: '%s'\n", rank, buffer);
         agregar_incremento(palabras, num_palabras, buffer);
         palabras_encontradas++;
     }
@@ -103,7 +103,7 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
         char todas_palabras[MAX_WORDS][MAX_WORD_LEN];
         int total_palabras_extraidas = 0;
         
-        printf("Proceso 0: Extrayendo todas las palabras del segmento: '%s'\n", segmento);
+        // printf("Proceso 0: Extrayendo todas las palabras del segmento: '%s'\n", segmento);
         
         for (int i = 0; i < tam_segmento; i++) {
             char c_descifrado = descifrar_caracter(segmento[i]);
@@ -118,7 +118,7 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
                     if (total_palabras_extraidas < MAX_WORDS) {
                         strcpy(todas_palabras[total_palabras_extraidas], buffer);
                         total_palabras_extraidas++;
-                        printf("Extraída palabra %d: '%s'\n", total_palabras_extraidas, buffer);
+                        //printf("Extraída palabra %d: '%s'\n", total_palabras_extraidas, buffer);
                     }
                     index = 0;
                 }
@@ -130,7 +130,7 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
             buffer[index] = '\0';
             strcpy(todas_palabras[total_palabras_extraidas], buffer);
             total_palabras_extraidas++;
-            printf("Extraída palabra final %d: '%s'\n", total_palabras_extraidas, buffer);
+            //printf("Extraída palabra final %d: '%s'\n", total_palabras_extraidas, buffer);
         }
         
         printf("Total de palabras extraídas: %d\n", total_palabras_extraidas);
@@ -148,7 +148,7 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
         int inicio = rank * palabras_por_proceso + (rank < resto ? rank : resto);
         int fin = inicio + palabras_por_proceso + (rank < resto ? 1 : 0);
         
-        printf("Proceso %d procesará palabras desde índice %d hasta %d\n", rank, inicio, fin-1);
+        //printf("Proceso %d procesará palabras desde índice %d hasta %d\n", rank, inicio, fin-1);
         
         // Procesar las palabras asignadas al proceso 0
         for (int i = inicio; i < fin; i++) {
@@ -205,7 +205,7 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
         int inicio = rank * palabras_por_proceso + (rank < resto ? rank : resto);
         int fin = inicio + palabras_por_proceso + (rank < resto ? 1 : 0);
         
-        printf("Proceso %d procesará palabras desde índice %d hasta %d\n", rank, inicio, fin-1);
+        // printf("Proceso %d procesará palabras desde índice %d hasta %d\n", rank, inicio, fin-1);
         
         // Procesar palabras asignadas
         WordCount palabras_locales[MAX_WORDS];
@@ -215,8 +215,8 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
             agregar_incremento(palabras_locales, &num_palabras_locales, todas_palabras[i]);
         }
         
-        printf("Proceso %d procesó %d palabras, encontró %d únicas\n", 
-               fin - inicio, num_palabras_locales);
+        //  printf("Proceso %d procesó %d palabras, encontró %d únicas\n", 
+        //        fin - inicio, num_palabras_locales);
         
         // Enviar resultados al proceso 0
         MPI_Send(&num_palabras_locales, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
@@ -227,10 +227,10 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
     }
     
     if (rank == 0) {
-        printf("Resultado final del nodo: ");
-        for (int i = 0; i < *num_palabras; i++) {
-            printf("%s(%d) ", palabras[i].word, palabras[i].count);
-        }
+        // printf("Resultado final del nodo: ");
+        // for (int i = 0; i < *num_palabras; i++) {
+        //     printf("%s(%d) ", palabras[i].word, palabras[i].count);
+        // }
         printf("\n");
     }
 }
@@ -309,13 +309,13 @@ int main(int argc, char* argv[]) {
         
         printf("===== RECIBIDO SEGMENTO =====\n");
         printf("Tamaño: %d caracteres\n", tam_segmento);
-        printf("Contenido cifrado: '%s'\n", segmento);
+        //printf("Contenido cifrado: '%s'\n", segmento);
         
-        // Mostrar contenido descifrado para debug
-        printf("Contenido descifrado: '");
-        for (int i = 0; i < tam_segmento; i++) {
-            printf("%c", descifrar_caracter(segmento[i]));
-        }
+        // // Mostrar contenido descifrado para debug
+        // printf("Contenido descifrado: '");
+        // for (int i = 0; i < tam_segmento; i++) {
+        //     printf("%c", descifrar_caracter(segmento[i]));
+        // }
         printf("'\n");
         printf("=============================\n");
         
