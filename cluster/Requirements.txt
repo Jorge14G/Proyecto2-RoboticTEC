@@ -1,20 +1,15 @@
 sudo apt update
 sudo apt install -y build-essential openmpi-bin openmpi-common libopenmpi-dev
 
-
 make all
-
 
 chmod +x iniciar_nodo1.sh
 chmod +x iniciar_nodo2.sh  
 chmod +x iniciar_nodo3.sh
 chmod +x ejecutar_servidor.sh
 
-
 ./iniciar_nodo1.sh
 ./iniciar_nodo2.sh
 ./iniciar_nodo3.sh
 ./ejecutar_servidor.sh
 
-
-siuuuu

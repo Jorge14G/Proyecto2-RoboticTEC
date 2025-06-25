@@ -1,4 +1,4 @@
-// nodo_optimizado.c
+// nodo_simplificado_corregido.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,8 +30,7 @@ char descifrar_caracter(char c) {
 
 // Función para agregar/incrementar palabra en el array
 void agregar_incremento(WordCount *array, int *n, const char *word) {
-    // Ignorar palabras muy cortas (menos de 2 caracteres) para optimizar
-    if (strlen(word) < 2) return;
+    if (strlen(word) < 1) return;  // Cambié de 2 a 1 para permitir palabras de 1 letra
     
     for (int i = 0; i < *n; i++) {
         if (strcmp(array[i].word, word) == 0) {
@@ -48,49 +47,17 @@ void agregar_incremento(WordCount *array, int *n, const char *word) {
     }
 }
 
-// Función OPTIMIZADA para procesar segmento con MPI
-void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras, int* num_palabras) {
-    int rank, size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
-    // Dividir trabajo entre procesos MPI de manera más inteligente
-    int palabras_estimadas = tam_segmento / 5; // Estimación: 1 palabra cada 5 caracteres
-    int chars_por_proceso = tam_segmento / size;
-    int resto = tam_segmento % size;
-    
-    int inicio = rank * chars_por_proceso + (rank < resto ? rank : resto);
-    int fin = inicio + chars_por_proceso + (rank < resto ? 1 : 0);
-    
-    // MEJORADO: Ajustar límites para no cortar palabras (más eficiente)
-    if (rank > 0) {
-        // Buscar hacia atrás hasta encontrar un separador
-        while (inicio > 0 && isalpha(segmento[inicio - 1])) {
-            inicio--;
-        }
-        // Saltar espacios iniciales
-        while (inicio < tam_segmento && isspace(segmento[inicio])) {
-            inicio++;
-        }
-    }
-    
-    if (rank < size - 1) {
-        // Buscar hacia adelante hasta completar la palabra actual
-        while (fin < tam_segmento && isalpha(segmento[fin])) {
-            fin++;
-        }
-    }
-    
-    printf("Proceso MPI %d procesando caracteres %d-%d (%d chars)\n", 
-           rank, inicio, fin - 1, fin - inicio);
-    
-    // Procesar la porción asignada de manera más eficiente
-    WordCount palabras_locales[MAX_WORDS];
-    int num_palabras_locales = 0;
-    
+// Función SIMPLIFICADA para encontrar palabras en un rango sin solapamiento
+void extraer_palabras_rango(char* segmento, int inicio, int fin, WordCount* palabras, int* num_palabras, int rank) {
     char buffer[MAX_WORD_LEN];
     int index = 0;
-    int palabras_procesadas = 0;
+    int palabras_encontradas = 0;
+    
+    // printf("Proceso %d analizando rango [%d,%d): '", rank, inicio, fin);
+    for (int i = inicio; i < fin; i++) {
+        printf("%c", segmento[i]);
+    }
+    printf("'\n");
     
     for (int i = inicio; i < fin; i++) {
         char c_descifrado = descifrar_caracter(segmento[i]);
@@ -99,36 +66,98 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
             if (index < MAX_WORD_LEN - 1) {
                 buffer[index++] = tolower(c_descifrado);
             }
-        } else if (isspace(c_descifrado) || ispunct(c_descifrado)) {
+        } else {
+            // Encontramos un separador
             if (index > 0) {
                 buffer[index] = '\0';
-                agregar_incremento(palabras_locales, &num_palabras_locales, buffer);
-                palabras_procesadas++;
+                // printf("Proceso %d encontró palabra: '%s'\n", rank, buffer);
+                agregar_incremento(palabras, num_palabras, buffer);
+                palabras_encontradas++;
                 index = 0;
             }
         }
     }
     
-    // Procesar última palabra si existe
-    if (index > 0) {
+    // Procesar última palabra si el rango termina en el final del segmento
+    if (index > 0 && fin == strlen(segmento)) {
         buffer[index] = '\0';
-        agregar_incremento(palabras_locales, &num_palabras_locales, buffer);
-        palabras_procesadas++;
+        // printf("Proceso %d encontró palabra final: '%s'\n", rank, buffer);
+        agregar_incremento(palabras, num_palabras, buffer);
+        palabras_encontradas++;
     }
     
-    printf("Proceso MPI %d: %d palabras procesadas, %d únicas encontradas\n", 
-           rank, palabras_procesadas, num_palabras_locales);
+    printf("Proceso %d: %d palabras procesadas, %d únicas\n", rank, palabras_encontradas, *num_palabras);
+}
+
+// Función para dividir el trabajo por PALABRAS, no por caracteres
+void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras, int* num_palabras) {
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
     
-    // Recopilar resultados en el proceso 0 (OPTIMIZADO)
+    // NUEVO ENFOQUE: Primero extraer TODAS las palabras en el proceso 0
     if (rank == 0) {
-        // Copiar palabras locales del proceso 0
-        for (int i = 0; i < num_palabras_locales; i++) {
-            strcpy(palabras[i].word, palabras_locales[i].word);
-            palabras[i].count = palabras_locales[i].count;
-        }
-        *num_palabras = num_palabras_locales;
+        // Extraer todas las palabras del segmento
+        char buffer[MAX_WORD_LEN];
+        int index = 0;
+        char todas_palabras[MAX_WORDS][MAX_WORD_LEN];
+        int total_palabras_extraidas = 0;
         
-        // Recibir de otros procesos
+        // printf("Proceso 0: Extrayendo todas las palabras del segmento: '%s'\n", segmento);
+        
+        for (int i = 0; i < tam_segmento; i++) {
+            char c_descifrado = descifrar_caracter(segmento[i]);
+            
+            if (isalpha(c_descifrado)) {
+                if (index < MAX_WORD_LEN - 1) {
+                    buffer[index++] = tolower(c_descifrado);
+                }
+            } else {
+                if (index > 0) {
+                    buffer[index] = '\0';
+                    if (total_palabras_extraidas < MAX_WORDS) {
+                        strcpy(todas_palabras[total_palabras_extraidas], buffer);
+                        total_palabras_extraidas++;
+                        //printf("Extraída palabra %d: '%s'\n", total_palabras_extraidas, buffer);
+                    }
+                    index = 0;
+                }
+            }
+        }
+        
+        // Procesar última palabra si existe
+        if (index > 0 && total_palabras_extraidas < MAX_WORDS) {
+            buffer[index] = '\0';
+            strcpy(todas_palabras[total_palabras_extraidas], buffer);
+            total_palabras_extraidas++;
+            //printf("Extraída palabra final %d: '%s'\n", total_palabras_extraidas, buffer);
+        }
+        
+        printf("Total de palabras extraídas: %d\n", total_palabras_extraidas);
+        
+        // Broadcast del número total de palabras
+        MPI_Bcast(&total_palabras_extraidas, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        
+        // Broadcast de todas las palabras
+        MPI_Bcast(todas_palabras, total_palabras_extraidas * MAX_WORD_LEN, MPI_CHAR, 0, MPI_COMM_WORLD);
+        
+        // Dividir las palabras entre procesos
+        int palabras_por_proceso = total_palabras_extraidas / size;
+        int resto = total_palabras_extraidas % size;
+        
+        int inicio = rank * palabras_por_proceso + (rank < resto ? rank : resto);
+        int fin = inicio + palabras_por_proceso + (rank < resto ? 1 : 0);
+        
+        //printf("Proceso %d procesará palabras desde índice %d hasta %d\n", rank, inicio, fin-1);
+        
+        // Procesar las palabras asignadas al proceso 0
+        for (int i = inicio; i < fin; i++) {
+            agregar_incremento(palabras, num_palabras, todas_palabras[i]);
+        }
+        
+        printf("Proceso 0 procesó %d palabras, encontró %d únicas\n", fin - inicio, *num_palabras);
+        
+        // Recibir resultados de otros procesos
         for (int src = 1; src < size; src++) {
             int num_recibidas;
             MPI_Recv(&num_recibidas, 1, MPI_INT, src, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -138,10 +167,9 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
                 MPI_Recv(palabras_recibidas, num_recibidas * sizeof(WordCount), MPI_BYTE, 
                         src, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 
-                // Combinar con las palabras existentes de manera más eficiente
+                // Combinar palabras
                 for (int i = 0; i < num_recibidas; i++) {
                     int encontrado = 0;
-                    // Buscar si ya existe
                     for (int j = 0; j < *num_palabras; j++) {
                         if (strcmp(palabras[j].word, palabras_recibidas[i].word) == 0) {
                             palabras[j].count += palabras_recibidas[i].count;
@@ -150,7 +178,6 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
                         }
                     }
                     
-                    // Si no existe y hay espacio, agregarla
                     if (!encontrado && *num_palabras < MAX_WORDS) {
                         strcpy(palabras[*num_palabras].word, palabras_recibidas[i].word);
                         palabras[*num_palabras].count = palabras_recibidas[i].count;
@@ -160,15 +187,51 @@ void procesar_segmento_mpi(char* segmento, int tam_segmento, WordCount* palabras
             }
         }
         
-        printf("Proceso 0: Combinación completada - %d palabras únicas totales\n", *num_palabras);
-        
     } else {
-        // Enviar al proceso 0
+        // Procesos no-0: recibir datos y procesar su parte
+        int total_palabras_extraidas;
+        char todas_palabras[MAX_WORDS][MAX_WORD_LEN];
+        
+        // Recibir número total de palabras
+        MPI_Bcast(&total_palabras_extraidas, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        
+        // Recibir todas las palabras
+        MPI_Bcast(todas_palabras, total_palabras_extraidas * MAX_WORD_LEN, MPI_CHAR, 0, MPI_COMM_WORLD);
+        
+        // Calcular rango de palabras para este proceso
+        int palabras_por_proceso = total_palabras_extraidas / size;
+        int resto = total_palabras_extraidas % size;
+        
+        int inicio = rank * palabras_por_proceso + (rank < resto ? rank : resto);
+        int fin = inicio + palabras_por_proceso + (rank < resto ? 1 : 0);
+        
+        // printf("Proceso %d procesará palabras desde índice %d hasta %d\n", rank, inicio, fin-1);
+        
+        // Procesar palabras asignadas
+        WordCount palabras_locales[MAX_WORDS];
+        int num_palabras_locales = 0;
+        
+        for (int i = inicio; i < fin; i++) {
+            agregar_incremento(palabras_locales, &num_palabras_locales, todas_palabras[i]);
+        }
+        
+        //  printf("Proceso %d procesó %d palabras, encontró %d únicas\n", 
+        //        fin - inicio, num_palabras_locales);
+        
+        // Enviar resultados al proceso 0
         MPI_Send(&num_palabras_locales, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
         if (num_palabras_locales > 0) {
             MPI_Send(palabras_locales, num_palabras_locales * sizeof(WordCount), MPI_BYTE, 
                     0, 1, MPI_COMM_WORLD);
         }
+    }
+    
+    if (rank == 0) {
+        // printf("Resultado final del nodo: ");
+        // for (int i = 0; i < *num_palabras; i++) {
+        //     printf("%s(%d) ", palabras[i].word, palabras[i].count);
+        // }
+        printf("\n");
     }
 }
 
@@ -190,7 +253,7 @@ int main(int argc, char* argv[]) {
     int tam_segmento = 0;
     
     if (rank == 0) {
-        printf("Nodo OPTIMIZADO iniciado en puerto %d con %d procesos MPI\n", puerto, size);
+        printf("Nodo SIMPLIFICADO iniciado en puerto %d con %d procesos MPI\n", puerto, size);
         
         // Crear socket servidor
         int servidor_sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -244,15 +307,19 @@ int main(int argc, char* argv[]) {
         recv(cliente_sock, segmento, tam_segmento, 0);
         segmento[tam_segmento] = '\0';
         
-        printf("Recibido segmento de %d caracteres para procesamiento distribuido\n", tam_segmento);
+        printf("===== RECIBIDO SEGMENTO =====\n");
+        printf("Tamaño: %d caracteres\n", tam_segmento);
+        //printf("Contenido cifrado: '%s'\n", segmento);
         
-        // Broadcast del tamaño a todos los procesos
-        MPI_Bcast(&tam_segmento, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        // // Mostrar contenido descifrado para debug
+        // printf("Contenido descifrado: '");
+        // for (int i = 0; i < tam_segmento; i++) {
+        //     printf("%c", descifrar_caracter(segmento[i]));
+        // }
+        printf("'\n");
+        printf("=============================\n");
         
-        // Broadcast del segmento a todos los procesos
-        MPI_Bcast(segmento, tam_segmento + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
-        
-        // Procesar con MPI OPTIMIZADO
+        // Procesar con MPI SIMPLIFICADO
         WordCount palabras[MAX_WORDS];
         int num_palabras = 0;
         
@@ -276,23 +343,10 @@ int main(int argc, char* argv[]) {
         free(segmento);
         
     } else {
-        // Los procesos MPI no-rank-0 reciben los datos via broadcast
-        
-        // Recibir tamaño del segmento
-        MPI_Bcast(&tam_segmento, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        
-        // Allocar memoria y recibir segmento
-        segmento = malloc(tam_segmento + 1);
-        MPI_Bcast(segmento, tam_segmento + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
-        
-        printf("Proceso MPI %d recibió segmento de %d caracteres\n", rank, tam_segmento);
-        
-        // Procesar con MPI (solo participar, no manejar resultados)
+        // Los procesos MPI no-rank-0 solo participan en el procesamiento
         WordCount palabras[MAX_WORDS];
         int num_palabras = 0;
         procesar_segmento_mpi(segmento, tam_segmento, palabras, &num_palabras);
-        
-        free(segmento);
     }
     
     // Sincronizar todos los procesos antes de finalizar

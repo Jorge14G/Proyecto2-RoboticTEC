@@ -90,6 +90,5 @@ module_init(robot_init);
 module_exit(robot_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("TuNombre");
-MODULE_DESCRIPTION("Driver char para RoboticTEC");
+MODULE_DESCRIPTION("Driver para RoboticTEC");
 MODULE_VERSION("0.1");

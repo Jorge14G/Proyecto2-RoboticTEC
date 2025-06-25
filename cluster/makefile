@@ -5,6 +5,11 @@ MPICC = mpicc
 CFLAGS = -Wall -g -std=c99
 LDFLAGS = -pthread
 
+# Paths hacia la biblioteca
+LIBDIR = ../RoboticTECLib
+INCLUDES = -I$(LIBDIR)
+LIBS = -L$(LIBDIR) -l:roboticLib.a
+
 # Archivos fuente
 SERVIDOR_SRC = servidor.c
 NODO_SRC = nodo.c
@@ -15,19 +20,19 @@ SERVIDOR_BIN = servidor
 NODO_BIN = nodo
 CLIENTE_BIN = cliente
 
-.PHONY: all clean install-deps run-demo
+.PHONY: all clean install-deps run-demo help
 
 all: $(SERVIDOR_BIN) $(NODO_BIN) $(CLIENTE_BIN)
 
-# Compilar servidor
+# Compilar servidor (usa la librería roboticLib)
 $(SERVIDOR_BIN): $(SERVIDOR_SRC)
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LDFLAGS) $(LIBS)
 
 # Compilar nodo con MPI
 $(NODO_BIN): $(NODO_SRC)
 	$(MPICC) $(CFLAGS) -o $@ $<
 
-# Compilar cliente (tu código existente)
+# Compilar cliente
 $(CLIENTE_BIN): $(CLIENTE_SRC)
 	$(CC) $(CFLAGS) -o $@ $<
 
@@ -74,3 +79,4 @@ help:
 	@echo "  make run-demo        - Ejecutar demostración completa"
 	@echo "  make clean           - Limpiar archivos compilados"
 	@echo "  make help            - Mostrar esta ayuda"
+
