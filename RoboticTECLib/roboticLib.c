@@ -1,5 +1,3 @@
-// RoboticLib/roboticLib.c
-
 #include "roboticLib.h"
 #include <stdio.h>
 #include <stdlib.h>
